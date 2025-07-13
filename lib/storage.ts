@@ -86,6 +86,10 @@ class DocumentStorage {
     localStorage.setItem(this.DOCUMENTS_KEY, JSON.stringify(filtered))
   }
 
+  clearAllDocuments(): void {
+    localStorage.removeItem(this.DOCUMENTS_KEY)
+  }
+
   // Activity operations
   getActivities(): Activity[] {
     if (typeof window === 'undefined') return []

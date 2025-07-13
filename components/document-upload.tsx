@@ -17,6 +17,7 @@ interface UploadFile {
   type: string
   progress: number
   status: "uploading" | "completed" | "error"
+  content?: string
 }
 
 export function DocumentUpload() {
@@ -57,13 +58,13 @@ export function DocumentUpload() {
 
     // Process each file
     newFiles.forEach((file) => {
-      processFile(file)
+      processFile(file, fileList.find(f => f.name === file.name)!)
     })
   }
 
-  const processFile = (file: UploadFile) => {
+  const processFile = async (file: UploadFile, originalFile: File) => {
     // Simulate upload progress
-    const interval = setInterval(() => {
+    const interval = setInterval(async () => {
       setFiles((prev) =>
         prev.map((f) => {
           if (f.id === file.id) {
@@ -73,16 +74,20 @@ export function DocumentUpload() {
             if (newProgress === 100) {
               clearInterval(interval)
               
-              // Save to localStorage when upload is complete
-              addDocument({
-                name: f.name,
-                size: f.size,
-                type: f.type,
-                status: 'completed',
-                progress: 100,
-                stage: 'Ready',
-                confidence: Math.floor(Math.random() * 20) + 80, // Random confidence 80-100%
-                priority: 'normal'
+              // Extract file content based on file type
+              extractFileContent(originalFile).then(content => {
+                // Save to localStorage when upload is complete
+                addDocument({
+                  name: f.name,
+                  size: f.size,
+                  type: f.type,
+                  status: 'completed',
+                  progress: 100,
+                  stage: 'Ready',
+                  confidence: Math.floor(Math.random() * 20) + 80, // Random confidence 80-100%
+                  priority: 'normal',
+                  content: content
+                })
               })
             }
 
@@ -92,6 +97,72 @@ export function DocumentUpload() {
         }),
       )
     }, 500)
+  }
+
+  const extractFileContent = async (file: File): Promise<string> => {
+    try {
+      console.log('Starting content extraction for:', file.name)
+      
+      // Use server-side API for content extraction
+      const formData = new FormData()
+      formData.append('file', file)
+      
+      console.log('Sending request to /api/extract-content-v2')
+      const response = await fetch('/api/extract-content-v2', {
+        method: 'POST',
+        body: formData
+      })
+      
+      console.log('Response status:', response.status)
+      
+      if (!response.ok) {
+        const errorText = await response.text()
+        console.error('API Error response:', errorText)
+        throw new Error(`Content extraction failed: ${response.status} - ${errorText}`)
+      }
+      
+      const result = await response.json()
+      console.log('Content extraction result:', result)
+      
+      // Return the result as JSON string
+      return JSON.stringify(result)
+      
+    } catch (error) {
+      console.error('Content extraction error:', error)
+      
+      // Fallback to client-side processing for text files
+      if (file.type.startsWith('text/') || file.name.endsWith('.txt') || file.name.endsWith('.md')) {
+        return new Promise((resolve) => {
+          const reader = new FileReader()
+          reader.onload = (e) => {
+            const content = e.target?.result as string
+            const jsonContent = JSON.stringify({
+              fileName: file.name,
+              fileType: file.type,
+              fileSize: file.size,
+              content: content,
+              contentType: 'text',
+              extractedAt: new Date().toISOString(),
+              note: 'Real content extracted (client-side fallback)'
+            })
+            resolve(jsonContent)
+          }
+          reader.readAsText(file)
+        })
+      } else {
+        // For other files, return error message
+        const errorContent = JSON.stringify({
+          fileName: file.name,
+          fileType: file.type,
+          fileSize: file.size,
+          content: `Error extracting content from ${file.name}: ${error instanceof Error ? error.message : 'Unknown error'}`,
+          contentType: 'error',
+          extractedAt: new Date().toISOString(),
+          note: 'Content extraction failed - implement proper server-side processing'
+        })
+        return errorContent
+      }
+    }
   }
 
   const removeFile = (fileId: string) => {
@@ -140,7 +211,7 @@ export function DocumentUpload() {
             id="file-input"
             type="file"
             multiple
-            accept=".pdf,.png,.jpg,.jpeg,.tiff,.docx"
+            accept=".pdf,.png,.jpg,.jpeg,.tiff,.docx,.txt,.md"
             className="hidden"
             onChange={(e) => e.target.files && handleFiles(Array.from(e.target.files))}
           />
